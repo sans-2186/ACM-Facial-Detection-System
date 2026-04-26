@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ACM Security Command Center</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #2c3e50; --accent: #3498db; --in: #2ecc71; --out: #e74c3c; }
+        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); margin: 0; padding: 20px; min-height: 100vh; }
+        .header-tag { text-align: center; font-weight: bold; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; font-size: 0.9rem; margin-bottom: 5px; }
+        .container { max-width: 1100px; margin: auto; background: white; padding: 30px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: var(--primary); margin: 0 0 20px 0; border-bottom: 3px solid var(--accent); padding-bottom: 10px; }
+        
+        /* Occupancy Stat */
+        .stats-row { margin-bottom: 25px; display: flex; justify-content: center; }
+        .stat-card { background: var(--primary); color: white; padding: 12px 40px; border-radius: 50px; text-align: center; box-shadow: 0 8px 20px rgba(44,62,80,0.2); }
+        .stat-label { display: block; font-size: 0.75rem; text-transform: uppercase; opacity: 0.8; letter-spacing: 1px; }
+        .stat-value { font-size: 2.2rem; font-weight: bold; }
+
+        /* Filters */
+        .filter-bar { display: flex; align-items: center; justify-content: space-between; gap: 15px; background: #f8f9fa; padding: 15px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #e1e8ed; }
+        input { padding: 10px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+        #searchBar { flex: 2; }
+        .date-box { flex: 1; display: flex; align-items: center; gap: 10px; font-size: 0.9rem; }
+        .btn-reset { padding: 10px 15px; background: var(--accent); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+
+        .dashboard-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 25px; }
+        .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #eee; }
+        .table-wrap { max-height: 400px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th { position: sticky; top: 0; background: #f8f9fa; padding: 12px; text-align: left; font-size: 0.8rem; color: #7f8c8d; }
+        td { padding: 12px; border-bottom: 1px solid #f1f1f1; }
+        .badge { padding: 4px 10px; border-radius: 15px; color: white; font-weight: bold; font-size: 0.75rem; }
+        .bg-in { background: var(--in); }
+        .bg-out { background: var(--out); }
+    </style>
+</head>
+<body>
+    <div class="header-tag">ACM Mentee Personal Project</div>
+    <div class="container">
+        <h1>LIVE SECURITY MONITOR</h1>
+
+        <div class="stats-row">
+            <div class="stat-card">
+                <span class="stat-label">Current Building Occupancy</span>
+                <span id="occupancyCount" class="stat-value">0</span>
+            </div>
+        </div>
+
+        <div class="filter-bar">
+            <input type="text" id="searchBar" placeholder="🔍 Search by name..." onkeyup="runFilters()">
+            <div class="date-box">
+                <span>View Logs for:</span>
+                <input type="date" id="dateFilter" onchange="runFilters()">
+            </div>
+            <button class="btn-reset" onclick="resetFilters()">Reset</button>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="card">
+                <h3>Live Activity Stream</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Name</th><th>Time</th><th>Status</th></tr></thead>
+                        <tbody id="logBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Log Distribution (Filtered)</h3>
+                <canvas id="attendanceChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let myChart;
+        const ctx = document.getElementById('attendanceChart').getContext('2d');
+        myChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels: ['Total IN', 'Total OUT'], datasets: [{ label: 'Visible Logs', data: [0, 0], backgroundColor: ['#2ecc71', '#e74c3c'] }] },
+            options: { responsive: true, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+        });
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/api/logs');
+                const logs = await response.json();
+                
+                // Update Table
+                const body = document.getElementById('logBody');
+                body.innerHTML = logs.map(log => `
+                    <tr>
+                        <td><strong>${log.name}</strong></td>
+                        <td>${log.timestamp}</td>
+                        <td><span class="badge ${log.status === 'IN' ? 'bg-in' : 'bg-out'}">${log.status}</span></td>
+                    </tr>`).join('');
+
+                // Calculate Live Occupancy (Based on latest status of each person)
+                const latestMap = {};
+                logs.forEach(log => { if(!latestMap[log.name]) latestMap[log.name] = log.status; });
+                const currentIn = Object.values(latestMap).filter(s => s === "IN").length;
+                document.getElementById('occupancyCount').innerText = currentIn;
+
+                runFilters(); 
+            } catch (err) { console.error("Update failed", err); }
+        }
+
+        function runFilters() {
+            const nameIn = document.getElementById("searchBar").value.toUpperCase();
+            const dateIn = document.getElementById("dateFilter").value;
+            const rows = document.getElementById("logBody").getElementsByTagName("tr");
+            
+            let countIn = 0;
+            let countOut = 0;
+
+            for (let row of rows) {
+                const name = row.cells[0].innerText.toUpperCase();
+                const time = row.cells[1].innerText;
+                const status = row.cells[2].innerText;
+
+                const matchName = name.includes(nameIn);
+                const matchDate = dateIn === "" || time.includes(dateIn);
+
+                if (matchName && matchDate) {
+                    row.style.display = "";
+                    if (status === "IN") countIn++; else countOut++;
+                } else {
+                    row.style.display = "none";
+                }
+            }
+            myChart.data.datasets[0].data = [countIn, countOut];
+            myChart.update();
+        }
+
+        function resetFilters() {
+            document.getElementById("searchBar").value = "";
+            document.getElementById("dateFilter").value = "";
+            runFilters();
+        }
+
+        setInterval(updateDashboard, 2000);
+        updateDashboard();
+    </script>
+</body>
+</html>

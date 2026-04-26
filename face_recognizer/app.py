@@ -7,6 +7,8 @@ import numpy as np
 import sqlite3
 import io
 from tkmacosx import Button # For better button styling on Mac
+import requests
+import datetime
 
 # --- DATABASE UTILITIES ---
 def adapt_array(arr):
@@ -30,12 +32,24 @@ def init_db():
             encoding BLOB NOT NULL
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            status TEXT NOT NULL  -- This will be "IN" or "OUT"
+        )
+    ''')
     conn.commit()
     conn.close()
 
 # --- MAIN APP CLASS ---
 class WebcamApp:
     def __init__(self, root):
+        self.api_url = "http://localhost:5000/api/attendance"
+        self.last_sync = {} # To prevent spamming the server
+        self.sync_cooldown = 10 # Seconds
+
         self.root = root
         self.root.title("ACM Facial Detection System")
         self.root.geometry("1100x900")
@@ -45,8 +59,11 @@ class WebcamApp:
         init_db()
         self.load_known_faces()
         self.cap = cv2.VideoCapture(0)
-        self.current_frame = None
-
+        #self.current_frame = None
+        self.panel_width = 300  # Width of your new sidebar
+        self.frame_width = 640  # Standard webcam width
+        self.frame_height = 480 # Standard webcam height  
+          
         # --- Critical Logic Variables ---
         self.process_this_frame = True
         self.face_locations = []
@@ -99,7 +116,12 @@ class WebcamApp:
 
         # Cleanly handle closing the window
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-
+        self.last_seen = {}       # To track cooldowns: {"Name": timestamp}
+        self.cooldown_seconds = 10 # Wait 10s before logging the same person again
+        self.api_url = "http://localhost:5000/api/attendance" # Node.js endpoint
+        
+        self.process_this_frame = True
+        self.load_known_faces()
         self.update_frame()
 
     def load_known_faces(self):
@@ -151,6 +173,7 @@ class WebcamApp:
                         # Only change "Unknown" to a name if the math is a solid match
                         if matches[best_match_index]:
                             name = self.known_names[best_match_index]
+                            self.sync_event(name) # Send to backend server
 
                 # 3. Add whatever name we found (or "Unknown") to the list
                 self.face_names.append(name)
@@ -261,6 +284,25 @@ class WebcamApp:
         else:
             conn.close()
             messagebox.showwarning("Error", f"No user found with the name '{name_to_delete}'.")
+    
+    def sync_event(self, name):
+        now = datetime.datetime.now()
+        # Cooldown check
+        if name in self.last_sync:
+            if (now - self.last_sync[name]).total_seconds() < self.sync_cooldown:
+                return
+                
+        self.last_sync[name] = now
+        payload = {
+            "name": name, 
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        try:
+            # Timeout is 0.1 so the camera doesn't lag if server is off
+            requests.post(self.api_url, json=payload, timeout=0.1)
+        except:
+            print("Backend server not reached.")
         
     def on_close(self):
         if self.cap.isOpened():
