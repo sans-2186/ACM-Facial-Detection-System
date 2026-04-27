@@ -59,11 +59,11 @@ class WebcamApp:
         init_db()
         self.load_known_faces()
         self.cap = cv2.VideoCapture(0)
-        #self.current_frame = None
+        #self.current_frame = None 
         self.panel_width = 300  # Width of your new sidebar
         self.frame_width = 640  # Standard webcam width
-        self.frame_height = 480 # Standard webcam height  
-          
+        self.frame_height = 480 # Standard webcam height
+
         # --- Critical Logic Variables ---
         self.process_this_frame = True
         self.face_locations = []
@@ -145,7 +145,7 @@ class WebcamApp:
         ret, frame = self.cap.read()
         if not ret:
             return
-            
+        
         self.current_frame = frame
 
         if self.process_this_frame:
@@ -174,7 +174,6 @@ class WebcamApp:
                         if matches[best_match_index]:
                             name = self.known_names[best_match_index]
                             self.sync_event(name) # Send to backend server
-
                 # 3. Add whatever name we found (or "Unknown") to the list
                 self.face_names.append(name)
 
